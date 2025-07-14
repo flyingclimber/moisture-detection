@@ -3,9 +3,11 @@ import numpy as np
 import requests
 import os
 import argparse
+import logging
 from dotenv import load_dotenv
 
 DATA_DIR: str = "data"
+LOG_FILE: str = os.path.join(DATA_DIR, "detect_wetness.log")
 BASELINE_IMG: str = os.path.join(DATA_DIR, "baseline.jpg")
 SNAPSHOT_IMG: str = os.path.join(DATA_DIR, "snapshot.jpg")
 DIFF_IMG: str = os.path.join(DATA_DIR, "diff.jpg")
@@ -13,14 +15,39 @@ WETNESS_THRESHOLD: float = 2.5
 THRESHOLD_VALUE: int = 30
 
 load_dotenv()
-
 camera_ip = os.environ.get("CAMERA_IP")
 camera_user = os.environ.get("CAMERA_USER")
 camera_pass = os.environ.get("CAMERA_PASS")
 slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
 
+def setup_logger(log_file: str) -> logging.Logger:
+    """
+    Set up and return a logger that logs to both file and console.
+    """
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+    logger = logging.getLogger("detect_wetness")
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+
+    if logger.hasHandlers():
+        logger.handlers.clear()
+
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.INFO)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    console_handler.setLevel(logging.INFO)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+    return logger
+
+logger = setup_logger(LOG_FILE)
+
 if not camera_ip or not camera_user or not camera_pass:
-    print("Please set CAMERA_IP, CAMERA_USER, and CAMERA_PASS in your .env file.")
+    logger.error("Please set CAMERA_IP, CAMERA_USER, and CAMERA_PASS in your .env file.")
     exit(1)
 
 def download_snapshot(url: str, auth: tuple[str, str]) -> None:
@@ -31,33 +58,11 @@ def download_snapshot(url: str, auth: tuple[str, str]) -> None:
     try:
         response = requests.get(url, auth=auth, stream=True, timeout=10)
         response.raise_for_status()
-        os.makedirs(DATA_DIR, exist_ok=True)
         with open(SNAPSHOT_IMG, "wb") as f:
             f.write(response.content)
     except Exception as e:
-        print(f"Failed to download snapshot: {e}")
+        logger.error(f"Failed to download snapshot: {e}")
         exit(1)
-
-def check_file_exists(filename: str) -> None:
-    """
-    Check if a file exists and is not empty. Exits on failure.
-    """
-    if not os.path.exists(filename):
-        print(f"{filename} not found. Please place it in the script directory and rerun this script.")
-        exit(1)
-    if os.path.getsize(filename) == 0:
-        print(f"{filename} is empty. Please check the file and try again.")
-        exit(1)
-
-def load_image(filename: str) -> np.ndarray:
-    """
-    Load an image in grayscale. Exits if the image is invalid or cannot be loaded.
-    """
-    img = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
-    if img is None:
-        print(f"{filename} could not be loaded or is not a valid image. Please check the file and try again.")
-        exit(1)
-    return img
 
 def check_lights_on(image: np.ndarray, brightness_threshold: float = 200.0, pixel_fraction: float = 0.5) -> bool:
     """
@@ -82,14 +87,35 @@ def notify_slack(message: str) -> None:
         message: The message to send.
     """
     if not slack_webhook_url:
-        print("Slack webhook URL not set. Skipping Slack notification.")
+        logger.warning("Slack webhook URL not set. Skipping Slack notification.")
         return
     payload = {"text": message}
     try:
         response = requests.post(slack_webhook_url, json=payload)
         response.raise_for_status()
     except Exception as e:
-        print(f"Failed to send Slack notification: {e}")
+        logger.error(f"Failed to send Slack notification: {e}")
+
+def check_file_exists(filename: str) -> None:
+    """
+    Check if a file exists and is not empty. Exits on failure.
+    """
+    if not os.path.exists(filename):
+        logger.error(f"{filename} not found. Please place it in the script directory and rerun this script.")
+        exit(1)
+    if os.path.getsize(filename) == 0:
+        logger.error(f"{filename} is empty. Please check the file and try again.")
+        exit(1)
+
+def load_image(filename: str) -> np.ndarray:
+    """
+    Load an image in grayscale. Exits if the image is invalid or cannot be loaded.
+    """
+    img = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
+    if img is None:
+        logger.error(f"{filename} could not be loaded or is not a valid image. Please check the file and try again.")
+        exit(1)
+    return img
 
 def main() -> None:
     """
@@ -116,7 +142,6 @@ def main() -> None:
     # Always use DATA_DIR for baseline and diff images
     baseline_path = BASELINE_IMG
     diff_img_path = DIFF_IMG
-    os.makedirs(DATA_DIR, exist_ok=True)
 
     check_file_exists(baseline_path)
     check_file_exists(snapshot_path)
@@ -126,7 +151,7 @@ def main() -> None:
 
     # Early exit if lights are on in the snapshot
     if check_lights_on(current):
-        print("Lights are on, skipping wetness detection.")
+        logger.info("Lights are on, skipping wetness detection.")
         return
 
     if current.shape != baseline.shape:
@@ -139,13 +164,13 @@ def main() -> None:
     total_pixels = thresh.size
     percent_changed = (changed_pixels / total_pixels) * 100
 
-    print(f"Changed pixels: {percent_changed:.2f}%")
-    cv2.imwrite(diff_img_path, thresh)
-
     if percent_changed > WETNESS_THRESHOLD:
         alert_msg = f"⚠️ Wetness detected! {percent_changed:.2f}% of pixels changed."
-        print(alert_msg)
+        logger.warning(alert_msg)
         notify_slack(alert_msg)
+    else:
+        logger.info(f"Changed pixels: {percent_changed:.2f}%")
+    cv2.imwrite(diff_img_path, thresh)
 
 if __name__ == "__main__":
     main()
