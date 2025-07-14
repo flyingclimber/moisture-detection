@@ -1,6 +1,3 @@
-
-
-
 import cv2
 import numpy as np
 import requests
@@ -59,6 +56,22 @@ def load_image(filename: str) -> np.ndarray:
         exit(1)
     return img
 
+def check_lights_on(image: np.ndarray, brightness_threshold: float = 200.0, pixel_fraction: float = 0.5) -> bool:
+    """
+    Detect if the lights are on by checking if a large fraction of pixels are very bright.
+    Args:
+        image: Grayscale image as numpy array.
+        brightness_threshold: Pixel value above which a pixel is considered 'bright'.
+        pixel_fraction: Fraction of pixels that must be bright to consider lights on.
+    Returns:
+        True if lights are likely on, False otherwise.
+    """
+    bright_pixels = np.count_nonzero(image > brightness_threshold)
+    total_pixels = image.size
+    if total_pixels == 0:
+        return False
+    return (bright_pixels / total_pixels) > pixel_fraction
+
 def main() -> None:
     """
     Main workflow: download snapshot or use custom, check files, compare images, and report wetness.
@@ -85,6 +98,11 @@ def main() -> None:
 
     baseline = load_image(BASELINE_IMG)
     current = load_image(snapshot_path)
+
+    # Early exit if lights are on in the snapshot
+    if check_lights_on(current):
+        print("Lights are on, skipping wetness detection.")
+        return
 
     if current.shape != baseline.shape:
         current = cv2.resize(current, (baseline.shape[1], baseline.shape[0]))
