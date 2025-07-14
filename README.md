@@ -19,6 +19,11 @@ Install dependencies:
 pip install opencv-python numpy requests python-dotenv
 ```
 
+You might need the following apt packages if you install from pinwheel
+```
+apt-get install -y libatlas3-base libavcodec59 libavformat59 libgtk-3-0 libopenblas0 libopenjp2-7 libswscale6
+```
+
 ## Usage
 
 1. Place a baseline image named `baseline.jpg` in the script directory.
