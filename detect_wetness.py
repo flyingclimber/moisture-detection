@@ -1,9 +1,16 @@
 
+
 import cv2
 import numpy as np
 import requests
 import os
 from dotenv import load_dotenv
+
+BASELINE_IMG: str = "baseline.jpg"
+SNAPSHOT_IMG: str = "snapshot.jpg"
+DIFF_IMG: str = "diff.jpg"
+WETNESS_THRESHOLD: float = 2.5
+THRESHOLD_VALUE: int = 30
 
 load_dotenv()
 
@@ -15,17 +22,24 @@ if not camera_ip or not camera_user or not camera_pass:
     print("Please set CAMERA_IP, CAMERA_USER, and CAMERA_PASS in your .env file.")
     exit(1)
 
-def download_snapshot(url, auth):
+def download_snapshot(url: str, auth: tuple[str, str]) -> None:
+    """
+    Download a snapshot image from the camera and save it to SNAPSHOT_IMG.
+    Exits on failure.
+    """
     try:
         response = requests.get(url, auth=auth, stream=True, timeout=10)
         response.raise_for_status()
-        with open("snapshot.jpg", "wb") as f:
+        with open(SNAPSHOT_IMG, "wb") as f:
             f.write(response.content)
     except Exception as e:
         print(f"Failed to download snapshot: {e}")
         exit(1)
 
-def check_file_exists(filename):
+def check_file_exists(filename: str) -> None:
+    """
+    Check if a file exists and is not empty. Exits on failure.
+    """
     if not os.path.exists(filename):
         print(f"{filename} not found. Please place it in the script directory and rerun this script.")
         exit(1)
@@ -33,41 +47,45 @@ def check_file_exists(filename):
         print(f"{filename} is empty. Please check the file and try again.")
         exit(1)
 
-
-def load_image(filename):
+def load_image(filename: str) -> np.ndarray:
+    """
+    Load an image in grayscale. Exits if the image is invalid or cannot be loaded.
+    """
     img = cv2.imread(filename, cv2.IMREAD_GRAYSCALE)
     if img is None:
         print(f"{filename} could not be loaded or is not a valid image. Please check the file and try again.")
         exit(1)
     return img
 
-
-def main():
+def main() -> None:
+    """
+    Main workflow: download snapshot, check files, compare images, and report wetness.
+    """
     url = f"http://{camera_ip}/cgi-bin/snapshot.cgi?channel=1"
     auth = (camera_user, camera_pass)
 
     download_snapshot(url, auth)
 
-    check_file_exists("baseline.jpg")
-    check_file_exists("snapshot.jpg")
+    check_file_exists(BASELINE_IMG)
+    check_file_exists(SNAPSHOT_IMG)
 
-    baseline = load_image("baseline.jpg")
-    current = load_image("snapshot.jpg")
+    baseline = load_image(BASELINE_IMG)
+    current = load_image(SNAPSHOT_IMG)
 
     if current.shape != baseline.shape:
         current = cv2.resize(current, (baseline.shape[1], baseline.shape[0]))
 
     diff = cv2.absdiff(current, baseline)
-    _, thresh = cv2.threshold(diff, 30, 255, cv2.THRESH_BINARY)
+    _, thresh = cv2.threshold(diff, THRESHOLD_VALUE, 255, cv2.THRESH_BINARY)
 
     changed_pixels = np.count_nonzero(thresh)
     total_pixels = thresh.size
     percent_changed = (changed_pixels / total_pixels) * 100
 
     print(f"Changed pixels: {percent_changed:.2f}%")
-    cv2.imwrite("diff.jpg", thresh)
+    cv2.imwrite(DIFF_IMG, thresh)
 
-    if percent_changed > 2.5:
+    if percent_changed > WETNESS_THRESHOLD:
         print("⚠️ Wetness detected!")
 
 if __name__ == "__main__":
