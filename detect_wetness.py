@@ -70,7 +70,7 @@ def check_lights_on(image: np.ndarray, brightness_threshold: float = 200.0, pixe
     total_pixels = image.size
     if total_pixels == 0:
         return False
-    return (bright_pixels / total_pixels) > pixel_fraction
+    return (bright_pixels / total_pixels) >= pixel_fraction
 
 def main() -> None:
     """

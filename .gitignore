@@ -2,3 +2,4 @@ requirements.txt
 *.jpg
 .venv/*
 .env
+__pycache__/
