@@ -64,21 +64,12 @@ def download_snapshot(url: str, auth: tuple[str, str]) -> None:
         logger.error(f"Failed to download snapshot: {e}")
         exit(1)
 
-def check_lights_on(image: np.ndarray, brightness_threshold: float = 200.0, pixel_fraction: float = 0.5) -> bool:
+def check_lights_on(image: np.ndarray, mean_threshold: float = 100.0) -> bool:
     """
-    Detect if the lights are on by checking if a large fraction of pixels are very bright.
-    Args:
-        image: Grayscale image as numpy array.
-        brightness_threshold: Pixel value above which a pixel is considered 'bright'.
-        pixel_fraction: Fraction of pixels that must be bright to consider lights on.
-    Returns:
-        True if lights are likely on, False otherwise.
+    Return True if the mean pixel value is above the threshold (i.e., image is very bright).
     """
-    bright_pixels = np.count_nonzero(image > brightness_threshold)
-    total_pixels = image.size
-    if total_pixels == 0:
-        return False
-    return (bright_pixels / total_pixels) >= pixel_fraction
+    mean_brightness = np.mean(image)
+    return mean_brightness > mean_threshold
 
 def notify_slack(message: str) -> None:
     """
