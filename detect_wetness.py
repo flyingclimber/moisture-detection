@@ -17,6 +17,7 @@ load_dotenv()
 camera_ip = os.environ.get("CAMERA_IP")
 camera_user = os.environ.get("CAMERA_USER")
 camera_pass = os.environ.get("CAMERA_PASS")
+slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
 
 if not camera_ip or not camera_user or not camera_pass:
     print("Please set CAMERA_IP, CAMERA_USER, and CAMERA_PASS in your .env file.")
@@ -74,6 +75,22 @@ def check_lights_on(image: np.ndarray, brightness_threshold: float = 200.0, pixe
         return False
     return (bright_pixels / total_pixels) >= pixel_fraction
 
+def notify_slack(message: str) -> None:
+    """
+    Send a notification to Slack using the global slack_webhook_url.
+    Args:
+        message: The message to send.
+    """
+    if not slack_webhook_url:
+        print("Slack webhook URL not set. Skipping Slack notification.")
+        return
+    payload = {"text": message}
+    try:
+        response = requests.post(slack_webhook_url, json=payload)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Failed to send Slack notification: {e}")
+
 def main() -> None:
     """
     Main workflow: download snapshot or use custom, check files, compare images, and report wetness.
@@ -90,8 +107,6 @@ def main() -> None:
     # Resolve snapshot path
     if args.snapshot:
         snapshot_path = args.snapshot
-        if not os.path.isabs(snapshot_path):
-            snapshot_path = os.path.join(DATA_DIR, snapshot_path)
     else:
         url = f"http://{camera_ip}/cgi-bin/snapshot.cgi?channel=1"
         auth = (camera_user, camera_pass)
@@ -128,7 +143,9 @@ def main() -> None:
     cv2.imwrite(diff_img_path, thresh)
 
     if percent_changed > WETNESS_THRESHOLD:
-        print("⚠️ Wetness detected!")
+        alert_msg = f"⚠️ Wetness detected! {percent_changed:.2f}% of pixels changed."
+        print(alert_msg)
+        notify_slack(alert_msg)
 
 if __name__ == "__main__":
     main()
