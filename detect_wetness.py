@@ -5,9 +5,10 @@ import os
 import argparse
 from dotenv import load_dotenv
 
-BASELINE_IMG: str = "baseline.jpg"
-SNAPSHOT_IMG: str = "snapshot.jpg"
-DIFF_IMG: str = "diff.jpg"
+DATA_DIR: str = "data"
+BASELINE_IMG: str = os.path.join(DATA_DIR, "baseline.jpg")
+SNAPSHOT_IMG: str = os.path.join(DATA_DIR, "snapshot.jpg")
+DIFF_IMG: str = os.path.join(DATA_DIR, "diff.jpg")
 WETNESS_THRESHOLD: float = 2.5
 THRESHOLD_VALUE: int = 30
 
@@ -29,6 +30,7 @@ def download_snapshot(url: str, auth: tuple[str, str]) -> None:
     try:
         response = requests.get(url, auth=auth, stream=True, timeout=10)
         response.raise_for_status()
+        os.makedirs(DATA_DIR, exist_ok=True)
         with open(SNAPSHOT_IMG, "wb") as f:
             f.write(response.content)
     except Exception as e:
@@ -85,18 +87,26 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    # Resolve snapshot path
     if args.snapshot:
         snapshot_path = args.snapshot
-        check_file_exists(snapshot_path)
+        if not os.path.isabs(snapshot_path):
+            snapshot_path = os.path.join(DATA_DIR, snapshot_path)
     else:
         url = f"http://{camera_ip}/cgi-bin/snapshot.cgi?channel=1"
         auth = (camera_user, camera_pass)
         download_snapshot(url, auth)
         snapshot_path = SNAPSHOT_IMG
 
-    check_file_exists(BASELINE_IMG)
+    # Always use DATA_DIR for baseline and diff images
+    baseline_path = BASELINE_IMG
+    diff_img_path = DIFF_IMG
+    os.makedirs(DATA_DIR, exist_ok=True)
 
-    baseline = load_image(BASELINE_IMG)
+    check_file_exists(baseline_path)
+    check_file_exists(snapshot_path)
+
+    baseline = load_image(baseline_path)
     current = load_image(snapshot_path)
 
     # Early exit if lights are on in the snapshot
@@ -115,7 +125,7 @@ def main() -> None:
     percent_changed = (changed_pixels / total_pixels) * 100
 
     print(f"Changed pixels: {percent_changed:.2f}%")
-    cv2.imwrite(DIFF_IMG, thresh)
+    cv2.imwrite(diff_img_path, thresh)
 
     if percent_changed > WETNESS_THRESHOLD:
         print("⚠️ Wetness detected!")
