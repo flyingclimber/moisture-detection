@@ -1,9 +1,11 @@
 
 
+
 import cv2
 import numpy as np
 import requests
 import os
+import argparse
 from dotenv import load_dotenv
 
 BASELINE_IMG: str = "baseline.jpg"
@@ -59,18 +61,30 @@ def load_image(filename: str) -> np.ndarray:
 
 def main() -> None:
     """
-    Main workflow: download snapshot, check files, compare images, and report wetness.
+    Main workflow: download snapshot or use custom, check files, compare images, and report wetness.
     """
-    url = f"http://{camera_ip}/cgi-bin/snapshot.cgi?channel=1"
-    auth = (camera_user, camera_pass)
+    parser = argparse.ArgumentParser(description="Detect wetness by comparing a camera snapshot to a baseline image.")
+    parser.add_argument(
+        "--snapshot",
+        type=str,
+        default=None,
+        help="Path to a custom snapshot image. If not provided, a snapshot will be downloaded from the camera."
+    )
+    args = parser.parse_args()
 
-    download_snapshot(url, auth)
+    if args.snapshot:
+        snapshot_path = args.snapshot
+        check_file_exists(snapshot_path)
+    else:
+        url = f"http://{camera_ip}/cgi-bin/snapshot.cgi?channel=1"
+        auth = (camera_user, camera_pass)
+        download_snapshot(url, auth)
+        snapshot_path = SNAPSHOT_IMG
 
     check_file_exists(BASELINE_IMG)
-    check_file_exists(SNAPSHOT_IMG)
 
     baseline = load_image(BASELINE_IMG)
-    current = load_image(SNAPSHOT_IMG)
+    current = load_image(snapshot_path)
 
     if current.shape != baseline.shape:
         current = cv2.resize(current, (baseline.shape[1], baseline.shape[0]))
