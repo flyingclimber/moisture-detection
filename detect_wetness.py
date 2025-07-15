@@ -137,8 +137,8 @@ def main() -> None:
     check_file_exists(baseline_path)
     check_file_exists(snapshot_path)
 
-    baseline = load_image(baseline_path)
-    current = load_image(snapshot_path)
+    baseline = load_image(baseline_path)[600:, 0:]
+    current = load_image(snapshot_path)[600:, 0:]
 
     # Early exit if lights are on in the snapshot
     if check_lights_on(current):
