@@ -3,7 +3,7 @@ charset-normalizer==3.4.2
 dotenv==0.9.9
 idna==3.10
 iniconfig==2.1.0
-numpy==1.24.4
+numpy==1.26.4
 opencv-python==4.7.0.72
 packaging==25.0
 pluggy==1.6.0
