@@ -16,7 +16,7 @@ This script detects wetness by comparing a camera snapshot to a baseline image u
 
 Install dependencies:
 ```
-pip install opencv-python numpy requests python-dotenv
+pip install -r requirements.txt
 ```
 
 You might need the following apt packages if you install from pinwheel
