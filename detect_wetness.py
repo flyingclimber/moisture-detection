@@ -4,7 +4,9 @@ import requests
 import os
 import argparse
 import logging
+import datetime
 from dotenv import load_dotenv
+from dateutil.parser import parse as parse_date
 
 DATA_DIR: str = "data"
 LOG_FILE: str = os.path.join(DATA_DIR, "detect_wetness.log")
@@ -13,12 +15,15 @@ SNAPSHOT_IMG: str = os.path.join(DATA_DIR, "snapshot.jpg")
 DIFF_IMG: str = os.path.join(DATA_DIR, "diff.jpg")
 WETNESS_THRESHOLD: float = 2.5
 THRESHOLD_VALUE: int = 30
+WEATHER_POINTS_URL = "https://api.weather.gov/points"
+RAIN_THRESHOLD: int = 50 
 
 load_dotenv()
 camera_ip = os.environ.get("CAMERA_IP")
 camera_user = os.environ.get("CAMERA_USER")
 camera_pass = os.environ.get("CAMERA_PASS")
 slack_webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
+loc = os.environ.get("LOC_GPS", "37.773,-122.431")
 
 def setup_logger(log_file: str) -> logging.Logger:
     """
@@ -63,6 +68,35 @@ def download_snapshot(url: str, auth: tuple[str, str]) -> None:
     except Exception as e:
         logger.error(f"Failed to download snapshot: {e}")
         exit(1)
+
+def is_rain_forecasted() -> bool:
+    """
+    Check if rain is forecasted in the current hourly period.
+    """
+    try:
+        forecast_url = f"{WEATHER_POINTS_URL}/{loc}"
+        response = requests.get(forecast_url, timeout=10)
+        response.raise_for_status()
+        forecast_hourly_url = response.json().get("properties", {}).get("forecastHourly")
+        if not forecast_hourly_url:
+            logger.error("No hourly forecast URL found in weather data.")
+            return False
+
+        forecast_response = requests.get(forecast_hourly_url, timeout=10)
+        forecast_response.raise_for_status()
+        periods = forecast_response.json().get("properties", {}).get("periods", [])
+        now = datetime.datetime.now(datetime.timezone.utc)
+
+        for period in periods:
+            start = parse_date(period.get('startTime'))
+            end = parse_date(period.get('endTime'))
+            if start <= now <= end:
+                precip = period.get('probabilityOfPrecipitation', {}).get('value', 0)
+                return precip >= RAIN_THRESHOLD
+    except Exception as e:
+        logger.error(f"Failed to fetch weather data: {e}")
+    return False
+
 
 def check_lights_on(image: np.ndarray, mean_threshold: float = 100.0) -> bool:
     """
@@ -120,6 +154,10 @@ def main() -> None:
         help="Path to a custom snapshot image. If not provided, a snapshot will be downloaded from the camera."
     )
     args = parser.parse_args()
+
+    if not is_rain_forecasted():
+        logger.info("No rain is forecasted, skipping wetness detection.")
+        return
 
     # Resolve snapshot path
     if args.snapshot:
