@@ -142,6 +142,16 @@ def load_image(filename: str) -> np.ndarray:
         exit(1)
     return img
 
+def save_image(img: np.ndarray, filename: str) -> None:
+    """
+    Save an image to disk. Logs and exits on failure.
+    """
+    try:
+        cv2.imwrite(filename, img)
+    except Exception as e:
+        logger.error(f"Failed to save image {filename}: {e}")
+        exit(1)
+
 def main() -> None:
     """
     Main workflow: download snapshot or use custom, check files, compare images, and report wetness.
@@ -155,7 +165,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if not is_rain_forecasted():
+    if is_rain_forecasted():
         logger.info("No rain is forecasted, skipping wetness detection.")
         return
 
@@ -197,9 +207,15 @@ def main() -> None:
         alert_msg = f"⚠️ Wetness detected! {percent_changed:.2f}% of pixels changed."
         logger.warning(alert_msg)
         notify_slack(alert_msg)
+
+        timestamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+        unique_diff_path = os.path.join(DATA_DIR, f"diff_{timestamp}.jpg")
+        unique_current_path = os.path.join(DATA_DIR, f"current_{timestamp}.jpg")
+        save_image(current, unique_current_path)
+        save_image(thresh, unique_diff_path)
     else:
         logger.info(f"Changed pixels: {percent_changed:.2f}%")
-    cv2.imwrite(diff_img_path, thresh)
+        save_image(thresh, diff_img_path)
 
 if __name__ == "__main__":
     main()
