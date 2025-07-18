@@ -17,6 +17,7 @@ WETNESS_THRESHOLD: float = 2.5
 THRESHOLD_VALUE: int = 30
 WEATHER_POINTS_URL = "https://api.weather.gov/points"
 RAIN_THRESHOLD: int = 50 
+STATE_FILE = os.path.join(DATA_DIR, "state.json")
 
 load_dotenv()
 camera_ip = os.environ.get("CAMERA_IP")
@@ -155,8 +156,17 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if not is_rain_forecasted():
+    import json
+    state = {}
+    rain_forecasted = is_rain_forecasted()
+    state['timestamp'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    state['rain_forecasted'] = rain_forecasted
+
+    if not rain_forecasted:
         logger.info("No rain is forecasted, skipping wetness detection.")
+        state['skipped'] = 'no_rain'
+        with open(STATE_FILE, 'w') as f:
+            json.dump(state, f, indent=2)
         return
 
     # Resolve snapshot path
@@ -178,9 +188,15 @@ def main() -> None:
     baseline = load_image(baseline_path)[600:, 0:]
     current = load_image(snapshot_path)[600:, 0:]
 
+    lights_on = check_lights_on(current)
+    state['lights_on'] = lights_on
+
     # Early exit if lights are on in the snapshot
-    if check_lights_on(current):
+    if lights_on:
         logger.info("Lights are on, skipping wetness detection.")
+        state['skipped'] = 'lights_on'
+        with open(STATE_FILE, 'w') as f:
+            json.dump(state, f, indent=2)
         return
 
     if current.shape != baseline.shape:
@@ -192,14 +208,19 @@ def main() -> None:
     changed_pixels = np.count_nonzero(thresh)
     total_pixels = thresh.size
     percent_changed = (changed_pixels / total_pixels) * 100
+    state['percent_changed'] = percent_changed
 
     if percent_changed > WETNESS_THRESHOLD:
         alert_msg = f"⚠️ Wetness detected! {percent_changed:.2f}% of pixels changed."
         logger.warning(alert_msg)
         notify_slack(alert_msg)
+        state['wetness_detected'] = True
     else:
         logger.info(f"Changed pixels: {percent_changed:.2f}%")
+        state['wetness_detected'] = False
     cv2.imwrite(diff_img_path, thresh)
+    with open(STATE_FILE, 'w') as f:
+        json.dump(state, f, indent=2)
 
 if __name__ == "__main__":
     main()
