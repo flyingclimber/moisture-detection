@@ -5,6 +5,7 @@ import os
 import argparse
 import logging
 import datetime
+import json
 from dotenv import load_dotenv
 from dateutil.parser import parse as parse_date
 
@@ -18,6 +19,7 @@ THRESHOLD_VALUE: int = 30
 WEATHER_POINTS_URL = "https://api.weather.gov/points"
 RAIN_THRESHOLD: int = 50 
 STATE_FILE = os.path.join(DATA_DIR, "state.json")
+N_HOURS = int = 6 
 
 load_dotenv()
 camera_ip = os.environ.get("CAMERA_IP")
@@ -70,10 +72,23 @@ def download_snapshot(url: str, auth: tuple[str, str]) -> None:
         logger.error(f"Failed to download snapshot: {e}")
         exit(1)
 
-def is_rain_forecasted() -> bool:
+def is_rain_forecasted(state) -> bool:
     """
     Check if rain is forecasted in the current hourly period.
     """
+    now = datetime.datetime.now(datetime.timezone.utc)
+    valid_until = state.get('forecast_valid_until')
+    rain_forecasted = state.get('rain_forecasted')
+    if valid_until:
+        try:
+            valid_until_dt = parse_date(valid_until)
+            if now < valid_until_dt:
+                logger.info(f"Using cached rain forecast (valid until {valid_until})")
+                return rain_forecasted
+        except Exception as e:
+            logger.warning(f"Could not parse cached forecast_valid_until: {e}")
+
+    # Fetch new forecast
     try:
         forecast_url = f"{WEATHER_POINTS_URL}/{loc}"
         response = requests.get(forecast_url, timeout=10)
@@ -86,14 +101,27 @@ def is_rain_forecasted() -> bool:
         forecast_response = requests.get(forecast_hourly_url, timeout=10)
         forecast_response.raise_for_status()
         periods = forecast_response.json().get("properties", {}).get("periods", [])
-        now = datetime.datetime.now(datetime.timezone.utc)
 
+        rain_found = False
+        latest_end = now
         for period in periods:
             start = parse_date(period.get('startTime'))
             end = parse_date(period.get('endTime'))
-            if start <= now <= end:
-                precip = period.get('probabilityOfPrecipitation', {}).get('value', 0)
-                return precip >= RAIN_THRESHOLD
+            if start > now + datetime.timedelta(hours=N_HOURS):
+                break
+            if end > latest_end:
+                latest_end = end
+            precip = period.get('probabilityOfPrecipitation', {}).get('value', 0)
+            if precip >= RAIN_THRESHOLD:
+                rain_found = True
+
+        state['forecast_valid_until'] = latest_end.isoformat()
+        state['rain_forecasted'] = rain_found
+        state['last_forecast_check'] = now.isoformat()
+        with open(STATE_FILE, 'w') as f:
+            json.dump(state, f, indent=2)
+        logger.info(f"Fetched new rain forecast (valid until {latest_end.isoformat()})")
+        return rain_found
     except Exception as e:
         logger.error(f"Failed to fetch weather data: {e}")
     return False
@@ -156,11 +184,17 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    import json
-    state = {}
-    rain_forecasted = is_rain_forecasted()
+    try:
+        if os.path.exists(STATE_FILE):
+            with open(STATE_FILE, 'r') as f:
+                state = json.load(f)
+        else:
+            state = {}
+    except Exception:
+        state = {}
+
+    rain_forecasted = is_rain_forecasted(state)
     state['timestamp'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    state['rain_forecasted'] = rain_forecasted
 
     if not rain_forecasted:
         logger.info("No rain is forecasted, skipping wetness detection.")
